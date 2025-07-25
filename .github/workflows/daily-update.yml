@@ -1,0 +1,75 @@
+name: Daily Codes Update
+
+on:
+  schedule:
+    # 每天UTC时间凌晨2点运行（北京时间上午10点）
+    - cron: '0 2 * * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  update-codes:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4
+        
+    - name: Run scraper and update codes
+      run: |
+        # 运行爬虫
+        python scraper.py
+        python extract_codes.py
+        
+        # 处理数据
+        python code_parser.py
+        python game_mapper.py
+        python update_detector.py
+        
+        # 生成Markdown文件
+        python github_markdown_generator.py
+        
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # 添加所有更改
+        git add .
+        
+        # 获取更新统计
+        NEW_CODES=$(python -c "import json; data=json.load(open('data/statistics.json')); print(data.get('games_with_new_codes', 0))")
+        TOTAL_CODES=$(python -c "import json; data=json.load(open('data/statistics.json')); print(data.get('total_codes', 0))")
+        
+        # 提交更改
+        git commit -m "🎮 Daily Update: $NEW_CODES games with new codes | Total: $TOTAL_CODES codes
+
+        Auto-updated by GitHub Actions
+        Visit https://gagcodes.com for more features!" || echo "No changes to commit"
+        
+        # 推送更改
+        git push || echo "No changes to push"
+        
+    - name: Create release (weekly)
+      if: github.event.schedule == '0 2 * * 0' # 每周日
+      run: |
+        TAG="v$(date +%Y.%W)"
+        git tag $TAG
+        git push origin $TAG
+        
+        # 创建release
+        gh release create $TAG \
+          --title "Weekly Codes Update - Week $(date +%W)" \
+          --notes "Weekly snapshot of all Roblox game codes.
+          
+          Visit [GAG Codes](https://gagcodes.com) for real-time updates!"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
